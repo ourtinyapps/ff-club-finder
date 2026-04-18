@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fitness First SG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root {
+  --bg:#0c0c0e; --s1:#16161a; --s2:#1e1e24; --s3:#272730; --s4:#2e2e3a;
+  --b1:#2a2a35; --b2:#38383f;
+  --red:#e8001c; --red-d:rgba(232,0,28,.09); --red-m:rgba(232,0,28,.2);
+  --green:#22c55e; --amber:#f59e0b; --blue:#38bdf8; --purple:#a78bfa; --orange:#fb923c;
+  --text:#f0ede8; --muted:#7a7a8a; --dim:#3c3c4a;
+  --ff:'Bebas Neue', Impact, sans-serif;
+  --fb:'DM Sans', system-ui, sans-serif;
+  --hdr:104px;
+  --strip:130px;
+  --r:8px; --r2:14px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--fb); -webkit-font-smoothing: antialiased; }
+button { font-family: var(--fb); cursor: pointer; }
+a { text-decoration: none; color: inherit; }
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 4px; }
+
+/* ── FIXED LAYOUT — map always has explicit pixel dimensions ── */
+#hdr {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--hdr); z-index: 300;
+  background: var(--s1); border-bottom: 1px solid var(--b1);
+}
+#map {
+  position: fixed;
+  top: var(--hdr); left: 0; right: 0;
+  bottom: var(--strip);
+  z-index: 10;
+}
+#card-strip {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: var(--strip);
+  z-index: 300;
+  background: var(--s1); border-top: 1px solid var(--b1);
+  overflow: hidden;
+}
+#detail {
+  position: fixed;
+  bottom: var(--strip); left: 0; right: 0;
+  z-index: 400;
+  background: var(--s1); border-top: 1px solid var(--b1);
+  border-radius: var(--r2) var(--r2) 0 0;
+  max-height: 72vh;
+  transform: translateY(100%);
+  transition: transform .3s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column;
+}
+#detail.open { transform: translateY(0); }
+#status {
+  position: fixed; top: calc(var(--hdr) + 10px); right: 12px;
+  z-index: 320;
+  background: var(--s1); border: 1px solid var(--b1); border-radius: var(--r);
+  padding: 6px 12px; font-size: 12px; color: var(--muted);
+  opacity: 0; pointer-events: none; transition: opacity .3s; max-width: 280px;
+}
+#status.show { opacity: 1; }
+
+/* ── HEADER ── */
+.hdr-r1 { display: flex; align-items: center; gap: 10px; padding: 8px 14px 5px; }
+.logo { font-family: var(--ff); font-size: 22px; letter-spacing: .04em; line-height: 1; }
+.logo em { color: var(--red); font-style: normal; }
+.hdr-sub { font-size: 11px; color: var(--muted); }
+.hdr-gap { flex: 1; }
+#btn-locate {
+  display: flex; align-items: center; gap: 6px; padding: 6px 13px;
+  background: var(--red); color: #fff; border: none; border-radius: var(--r);
+  font-size: 12px; font-weight: 600; white-space: nowrap; transition: opacity .2s;
+}
+#btn-locate:hover { opacity: .85; }
+#btn-locate.loading { background: var(--s3); color: var(--muted); }
+#btn-locate.done { background: rgba(34,197,94,.15); color: var(--green); border: 1px solid rgba(34,197,94,.4); }
+
+.hdr-r2 { display: flex; align-items: center; padding: 0 14px 8px; gap: 0; overflow: hidden; }
+.scroll-row { display: flex; gap: 5px; overflow-x: auto; -ms-overflow-style: none; scrollbar-width: none; }
+.scroll-row::-webkit-scrollbar { display: none; }
+.vsep { width: 1px; background: var(--b1); margin: 2px 8px; flex-shrink: 0; }
+.pill {
+  flex-shrink: 0; padding: 4px 10px; border-radius: 99px;
+  border: 1px solid var(--b1); background: var(--s2);
+  color: var(--muted); font-size: 11px; font-weight: 500;
+  white-space: nowrap; user-select: none; cursor: pointer;
+  transition: all .15s;
+}
+.pill:hover { border-color: var(--b2); color: var(--text); }
+.pill.on { background: var(--red-d); border-color: var(--red); color: var(--red); }
+.pill.tod::after {
+  content: ''; display: block; width: 4px; height: 4px;
+  background: var(--red); border-radius: 50%;
+  margin: 1px auto -3px;
+}
+.fgrp {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--dim);
+  align-self: center; padding: 0 2px;
+  white-space: nowrap;
+}
+
+/* ── MAP TILE OVERRIDE — Esri dark gray ── */
+.leaflet-control-attribution { background: rgba(0,0,0,.55) !important; color: #555 !important; font-size: 9px !important; }
+.leaflet-control-attribution a { color: #666 !important; }
+.leaflet-control-zoom a { background: var(--s2) !important; color: var(--text) !important; border-color: var(--b1) !important; }
+.leaflet-popup-content-wrapper {
+  background: var(--s2) !important; border: 1px solid var(--b1) !important;
+  border-radius: var(--r2) !important; color: var(--text) !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,.7) !important; font-family: var(--fb) !important;
+}
+.leaflet-popup-tip { background: var(--s2) !important; }
+.leaflet-popup-content { margin: 12px 15px !important; min-width: 210px; }
+.pp-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+.pp-sub { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 7px; }
+.pp-row { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.pp-row span { color: var(--text); }
+.pp-open { color: var(--green) !important; }
+.pp-closed { color: var(--dim) !important; }
+.pp-btn { margin-top: 10px; display: block; width: 100%; padding: 7px; background: var(--red); color: #fff !important; border-radius: 6px; font-size: 12px; font-weight: 600; text-align: center; border: none; }
+
+/* ── CARD STRIP ── */
+#cards {
+  display: flex; gap: 10px; padding: 10px 14px 8px;
+  overflow-x: auto; height: 100%;
+  -ms-overflow-style: none; scrollbar-width: none;
+  align-items: stretch;
+}
+#cards::-webkit-scrollbar { display: none; }
+.card {
+  flex-shrink: 0; width: 210px;
+  background: var(--s2); border: 1px solid var(--b1);
+  border-radius: var(--r2); padding: 12px 13px 10px;
+  cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s;
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.card:hover { background: var(--s3); border-color: var(--b2); box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.card.sel { background: var(--red-d); border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+.card.nearest { border-color: var(--green) !important; }
+.card.dimmed { opacity: .3; }
+.c-badge {
+  display: none; position: absolute; top: 0; right: 0;
+  background: var(--green); color: #000; font-size: 8px;
+  font-weight: 800; letter-spacing: .07em;
+  padding: 3px 8px; border-radius: 0 var(--r2) 0 8px;
+}
+.card.nearest .c-badge { display: block; }
+.c-head { display: flex; align-items: center; justify-content: space-between; }
+.c-num { font-family: var(--ff); font-size: 16px; color: var(--dim); line-height: 1; }
+.card.sel .c-num { color: var(--red); }
+.card.nearest .c-num { color: var(--green); }
+.c-tier { font-size: 8px; font-weight: 700; letter-spacing: .07em; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; }
+.tp { background: rgba(167,139,250,.15); color: var(--purple); }
+.tr { background: rgba(56,189,248,.1); color: var(--blue); }
+.c-name { font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.2; }
+.c-area { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.c-foot { display: flex; flex-direction: column; gap: 5px; }
+.c-hrs { font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.dot.o { background: var(--green); }
+.dot.c { background: var(--dim); }
+.c-meta { display: flex; align-items: center; justify-content: space-between; }
+.c-dist { font-size: 11px; font-weight: 600; color: var(--blue); }
+.c-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.ctag { font-size: 9px; padding: 2px 6px; border-radius: 99px; background: var(--s4); color: var(--muted); font-weight: 500; }
+.ctag.pool { color: var(--blue); background: rgba(56,189,248,.1); }
+.ctag.sauna { color: var(--orange); background: rgba(251,146,60,.1); }
+.ctag.cold { color: var(--purple); background: rgba(167,139,250,.1); }
+.ctag.hyrox { color: var(--red); background: var(--red-d); }
+.ctag.attire { color: var(--green); background: rgba(34,197,94,.1); }
+
+/* ── DETAIL PANEL ── */
+#detail-close {
+  position: absolute; top: 12px; right: 13px;
+  background: var(--s3); border: 1px solid var(--b1); color: var(--muted);
+  border-radius: 50%; width: 27px; height: 27px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; line-height: 1; transition: all .15s;
+}
+#detail-close:hover { color: var(--text); }
+#d-body { overflow-y: auto; flex: 1; padding: 15px 17px 22px; }
+.dn { font-family: var(--ff); font-size: 25px; letter-spacing: .03em; line-height: 1; margin-bottom: 2px; }
+.da { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 13px; }
+.da .tier-b { font-size: 10px; font-weight: 700; letter-spacing: .07em; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; }
+.da .ddist { font-size: 12px; font-weight: 600; color: var(--blue); }
+.slbl { font-size: 10px; font-weight: 700; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-bottom: 7px; }
+.hrs-row { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 2px; -ms-overflow-style: none; scrollbar-width: none; }
+.hrs-row::-webkit-scrollbar { display: none; }
+.hb { flex-shrink: 0; min-width: 72px; background: var(--s2); border-radius: 6px; padding: 8px 10px; border: 1px solid transparent; }
+.hb.today { border-color: var(--red); background: rgba(232,0,28,.06); }
+.hb-day { font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--dim); text-transform: uppercase; margin-bottom: 3px; }
+.hb-val { font-size: 11px; font-weight: 500; white-space: nowrap; }
+.hb-val.o { color: var(--green); }
+.hb-val.c { color: var(--dim); }
+.am-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
+.atag { font-size: 11px; padding: 4px 10px; border-radius: 99px; font-weight: 500; }
+.atag.pool { color: var(--blue); background: rgba(56,189,248,.12); }
+.atag.sauna { color: var(--orange); background: rgba(251,146,60,.12); }
+.atag.cold { color: var(--purple); background: rgba(167,139,250,.12); }
+.atag.hyrox { color: var(--red); background: var(--red-d); }
+.atag.attire { color: var(--green); background: rgba(34,197,94,.1); }
+.atag.classes { color: var(--muted); background: var(--s3); }
+.pk-box { background: var(--s2); border-radius: var(--r); padding: 11px 13px; margin-bottom: 14px; border-left: 2px solid var(--amber); }
+.pk-title { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--amber); text-transform: uppercase; margin-bottom: 7px; }
+.pk-row { font-size: 12px; color: var(--muted); margin-bottom: 4px; line-height: 1.4; }
+.pk-row strong { color: var(--text); font-weight: 500; }
+.pk-alt { font-size: 11px; color: var(--muted); margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--b1); line-height: 1.6; }
+.pk-alt span { color: var(--blue); }
+.note-box { font-size: 12px; color: var(--muted); border-left: 2px solid var(--red); padding-left: 10px; margin-bottom: 14px; font-style: italic; line-height: 1.5; }
+.d-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.dbtn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: var(--r); font-size: 13px; font-weight: 600; border: none; transition: opacity .2s; }
+.dbtn-p { background: var(--red); color: #fff; }
+.dbtn-p:hover { opacity: .85; }
+.dbtn-s { background: var(--s3); color: var(--muted); border: 1px solid var(--b1); }
+.dbtn-s:hover { color: var(--text); }
+
+/* ── USER DOT ── */
+.u-dot { width: 13px; height: 13px; background: var(--blue); border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 4px rgba(56,189,248,.22); }
+
+@media (max-width: 600px) {
+  :root { --hdr: 96px; --strip: 118px; }
+  .card { width: 180px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header id="hdr">
+  <div class="hdr-r1">
+    <div class="logo">FITNESS<em>FIRST</em></div>
+    <div class="hdr-sub">14 Clubs · SG</div>
+    <div class="hdr-gap"></div>
+    <button id="btn-locate" onclick="locateMe()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="12" cy="12" r="3"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22"/>
+      </svg>
+      <span id="loc-txt">Find Nearest</span>
+    </button>
+  </div>
+  <div class="hdr-r2">
+    <div class="scroll-row" id="days-wrap"></div>
+    <div class="vsep"></div>
+    <div class="scroll-row" id="filters-wrap">
+      <span class="fgrp">Tier</span>
+      <div class="pill" data-f="platinum" onclick="toggleF(this)">⬡ Platinum</div>
+      <div class="vsep" style="height:16px;margin:0 4px;"></div>
+      <span class="fgrp">Recovery</span>
+      <div class="pill" data-f="pool" onclick="toggleF(this)">🏊 Pool</div>
+      <div class="pill" data-f="sauna" onclick="toggleF(this)">🔥 Sauna</div>
+      <div class="pill" data-f="cold" onclick="toggleF(this)">🧊 Cold</div>
+      <div class="vsep" style="height:16px;margin:0 4px;"></div>
+      <span class="fgrp">Features</span>
+      <div class="pill" data-f="hyrox" onclick="toggleF(this)">⚡ Hyrox</div>
+      <div class="pill" data-f="attire" onclick="toggleF(this)">👕 Attire</div>
+      <div class="vsep" style="height:16px;margin:0 4px;"></div>
+      <span class="fgrp">Access</span>
+      <div class="pill" data-f="open" onclick="toggleF(this)">Open</div>
+      <div class="pill" data-f="sun" onclick="toggleF(this)">☀️ Open Sun</div>
+    </div>
+  </div>
+</header>
+
+<!-- ── MAP ── -->
+<div id="map"></div>
+<div id="status"></div>
+
+<!-- ── DETAIL PANEL ── -->
+<div id="detail">
+  <button id="detail-close" onclick="closeDetail()">×</button>
+  <div id="d-body"></div>
+</div>
+
+<!-- ── CARD STRIP ── -->
+<div id="card-strip">
+  <div id="cards"></div>
+</div>
+
+<script>
+// ══ CLUBS — accurate data as of 2025 ══════════════════════════════════════
+// Tiers confirmed: attire NOT provided at AMK Hub, Junction 10, Tampines → Premium
+// Pool clubs (official FF FAQ): 100AM, Alexandra, Capital Tower, Fusionopolis, One George St, Westgate
+const CLUBS = [
+  { id:1, name:"100AM", area:"Tanjong Pagar", zone:"CBD",
+    addr:"100 Tras St, #04-16B, S079027", lat:1.2750018, lng:103.8436614,
+    stars:4.5, revs:441, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,20],sun:[8,20]},
+    amenities:["pool","hyrox","attire","classes"],
+    pk:{main:"100AM / Tanjong Pagar Plaza basement",wkd:"~$1.80/30min (public HDB rates)",wknd:"~$0.60–1.20/30min (off-peak)",
+        alt:["UIC Building: ~$1.50/30min","Tanjong Pagar Rd HDB lots: $0.60/30min (3 min walk)"]},
+    note:"Pool + Hyrox classes. Free attire. CBD is quiet on weekends.",
+    url:"https://maps.google.com/?q=Fitness+First+100AM+Tanjong+Pagar+Singapore" },
+
+  { id:2, name:"Alexandra", area:"Mapletree Business City", zone:"West",
+    addr:"20 Pasir Panjang Rd, #07-29, S117439", lat:1.275215, lng:103.798924,
+    stars:4.7, revs:487, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,18],sun:null},
+    amenities:["pool","sauna","cold","attire","classes"],
+    pk:{main:"MBC / Alexandra Retail Centre basement",wkd:"Free 1hr (tenants); public ~$1.20/30min",wknd:"Free all day Sat & Sun",
+        alt:["Labrador Park HDB: free lots (10 min walk)","Pasir Panjang Rd street: $0.60/30min"]},
+    note:"Pool with sea view. Cold plunge + sauna. Free weekend parking. Closed Sundays.",
+    url:"https://maps.google.com/?q=Fitness+First+Alexandra+Mapletree+Singapore" },
+
+  { id:3, name:"AMK Hub", area:"Ang Mo Kio", zone:"North",
+    addr:"53 Ang Mo Kio Ave 3, #B1-36, S569933", lat:1.369732, lng:103.848706,
+    stars:4.7, revs:1140, tier:"premium",
+    hrs:{wkd:[6,22],sat:[8,21],sun:[8,21]},
+    amenities:["sauna","classes"],
+    pk:{main:"AMK Hub mall MSCP (basement, enter off AMK Ave 3)",wkd:"$1.20/30min (7am–5pm); $0.80/30min after 5pm",wknd:"$1.20/30min",
+        alt:["AMK Ave 3 HDB carparks: $0.60/30min (outdoor)","Street parking along AMK Ave 3: metered $0.60/30min"]},
+    note:"Most-reviewed FF club. Sauna included. No attire/pool (Premium tier).",
+    url:"https://maps.google.com/?q=Fitness+First+AMK+Hub+Singapore" },
+
+  { id:4, name:"Bugis Junction", area:"Bugis / City Hall", zone:"Central",
+    addr:"200 Victoria St, #04-02, S188021", lat:1.299135, lng:103.855363,
+    stars:4.5, revs:669, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,22],sun:[8,22]},
+    amenities:["attire","classes"],
+    pk:{main:"Bugis Junction MSCP (enter via Tan Queen Ann Rd)",wkd:"$1.60/30min peak (7am–5pm); $1.20/30min after",wknd:"$1.20/30min weekends",
+        alt:["National Library (Bugis+): $1.80/30min","Sim Lim Square: $1.20/30min","Bras Basah Rd metered: $0.60/30min"]},
+    note:"Latest closing time (10PM weekends). City-centre location. Attire provided.",
+    url:"https://maps.google.com/?q=Fitness+First+Bugis+Junction+Singapore" },
+
+  { id:5, name:"Capital Tower", area:"CBD Tanjong Pagar", zone:"CBD",
+    addr:"168 Robinson Rd, #09-01, S068912", lat:1.277737, lng:103.847621,
+    stars:4.7, revs:498, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,18],sun:null},
+    amenities:["pool","sauna","cold","attire","hyrox","classes"],
+    pk:{main:"Capital Tower basement (entry via Cecil St)",wkd:"$2.80/30min 7am–6pm · flat $3.70 after 6pm",wknd:"Sat: $2.80/30min until 1pm then flat $3.70 · Sun: flat $3.70 all day",
+        alt:["133 Cecil St: $2.50/30min (8am–6pm)","61 Robinson Rd: $2.20/30min (8am–5pm) — best value CBD","Great Eastern Centre: $1.80/30min (cheapest nearby)"]},
+    note:"Full Platinum: pool + cold bath + sauna + free attire. CBD quiet on weekends. Closed Sundays.",
+    url:"https://maps.google.com/?q=Fitness+First+Capital+Tower+Singapore" },
+
+  { id:6, name:"Fusionopolis", area:"one-north", zone:"West",
+    addr:"1 Fusionopolis Way, #23-11, S138632", lat:1.299565, lng:103.787674,
+    stars:4.5, revs:503, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[7,18],sun:[8,17]},
+    amenities:["pool","cold","attire","classes"],
+    pk:{main:"Fusionopolis Connexis basement (enter via Fusionopolis Link)",wkd:"Free first 2hrs; ~$1.20/30min after",wknd:"Free all day Sat & Sun",
+        alt:["Biopolis Way carpark: free weekends","one-north MRT surface lots: free weekends","Buona Vista Rd: metered street parking"]},
+    note:"Pool on upper floors. Floor-to-ceiling windows. Ice bath. Open Sunday. Free weekend parking.",
+    url:"https://maps.google.com/?q=Fitness+First+Fusionopolis+Singapore" },
+
+  { id:7, name:"Junction 10", area:"Bukit Timah", zone:"West",
+    addr:"1 Woodlands Rd, #02-01, S677899", lat:1.380884, lng:103.759926,
+    stars:4.7, revs:586, tier:"premium",
+    hrs:{wkd:[6,22],sat:[8,20],sun:[8,20]},
+    amenities:["classes"],
+    pk:{main:"Junction 10 mall MSCP",wkd:"First 1hr free (with purchase); $1.20/30min after",wknd:"First 1hr free; $0.80/30min weekends",
+        alt:["Bukit Timah Rd street: $0.60/30min","Jalan Jurong Kechil HDB: $0.60/30min (5 min walk)"]},
+    note:"Group classes 7 days. No pool or attire (Premium tier). Good north-west access.",
+    url:"https://maps.google.com/?q=Fitness+First+Junction+10+Singapore" },
+
+  { id:8, name:"The Metropolis", area:"Buona Vista", zone:"West",
+    addr:"11 N. Buona Vista Dr, #02-07, S138589", lat:1.305518, lng:103.791979,
+    stars:4.6, revs:353, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,18],sun:null},
+    amenities:["attire","classes"],
+    pk:{main:"The Metropolis Tower 2 basement",wkd:"~$1.20/30min weekdays",wknd:"Free Sat & Sun",
+        alt:["one-north MRT surface lot: free weekends","Biopolis Dr carpark: free weekends"]},
+    note:"Spacious, rarely crowded. Premium attire. Free weekend parking. Closed Sundays.",
+    url:"https://maps.google.com/?q=Fitness+First+Metropolis+Buona+Vista+Singapore" },
+
+  { id:9, name:"One George St", area:"CBD Raffles Place", zone:"CBD",
+    addr:"1 George St, #05-01, S049145", lat:1.285717, lng:103.847495,
+    stars:4.6, revs:566, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,18],sun:[9,18]},
+    amenities:["pool","attire","classes"],
+    pk:{main:"One George Street building carpark",wkd:"~$2.80–3.20/30min weekday peak (CBD rates)",wknd:"Flat ~$3.50–4.00 entry — far cheaper than weekday",
+        alt:["Great Eastern Centre: $1.80/30min (cheapest Raffles Pl)","Cross St Exchange: $1.90/30min","Clifford Centre: ~$2.20/30min (closed Sun)"]},
+    note:"Pool with Singapore Flyer view. Open Saturday AND Sunday. Attire provided.",
+    url:"https://maps.google.com/?q=Fitness+First+One+George+Street+Singapore" },
+
+  { id:10, name:"One Raffles Quay", area:"CBD Marina Bay", zone:"CBD",
+    addr:"1 Raffles Quay, #08-01, S048583", lat:1.281166, lng:103.851645,
+    stars:4.7, revs:835, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[7,18],sun:[8,17]},
+    amenities:["sauna","attire","classes"],
+    pk:{main:"One Raffles Quay building carpark (North & South towers)",wkd:"~$2.50–3.00/30min weekday peak (CBD rates)",wknd:"Flat ~$3.50–4.00 entry · drive in early morning for best value",
+        alt:["Great Eastern Centre: $1.80/30min (cheapest nearby)","Cross St Exchange: $1.90/30min","Marina Bay Link Mall: $2.00+/30min"]},
+    note:"Steam + dry sauna. Opens 7AM Saturday. Marina Bay views. Open Sunday. Attire provided.",
+    url:"https://maps.google.com/?q=Fitness+First+One+Raffles+Quay+Singapore" },
+
+  { id:11, name:"Paragon", area:"Orchard Road", zone:"Central",
+    addr:"290 Orchard Rd, #08-13, S238859", lat:1.303408, lng:103.835343,
+    stars:4.6, revs:1030, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[7,21],sun:[8,21]},
+    amenities:["sauna","attire","classes"],
+    pk:{main:"Paragon Shopping Centre basement (B2–B5, enter Orchard Rd / Grange Rd)",wkd:"$2.00/30min peak · Orchard premium rates apply",wknd:"$1.50/30min Sat & Sun — cheaper but still Orchard",
+        alt:["Lucky Plaza: $1.20/30min","The Heeren: $1.80/30min","Claymore HDB: $0.60/30min (5 min walk — by far cheapest)","Orchard Rd coupons: $0.50/30min evenings after 6pm"]},
+    note:"Sauna + steam + cycling studio. Opens 7AM Sat. Orchard vibe. Priciest parking — use Claymore HDB.",
+    url:"https://maps.google.com/?q=Fitness+First+Paragon+Orchard+Singapore" },
+
+  { id:12, name:"Paya Lebar", area:"SingPost Centre", zone:"East",
+    addr:"8 Eunos Rd 8, #02-104, S408600", lat:1.318983, lng:103.894867,
+    stars:4.7, revs:793, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[8,21],sun:[8,21]},
+    amenities:["attire","classes"],
+    pk:{main:"SingPost Centre basement (enter off Eunos Rd 8)",wkd:"First 2 hrs free (with receipt); $1.20/30min after",wknd:"First 2 hrs free; $0.80/30min weekends",
+        alt:["Paya Lebar Square: first 2hrs free","PLQ Mall: first 2hrs free (5 min walk)","Eunos HDB Blk 4: $0.60/30min (5 min walk)"]},
+    note:"Spacious. Attire provided. First 2hrs free parking. Good PIE/ECP access. Open late weekends.",
+    url:"https://maps.google.com/?q=Fitness+First+Paya+Lebar+Singapore" },
+
+  { id:13, name:"Tampines", area:"CPF Building", zone:"East",
+    addr:"1 Tampines Central, #04-01, S529508", lat:1.353031, lng:103.943714,
+    stars:4.8, revs:938, tier:"premium",
+    hrs:{wkd:[6,23],sat:[7,21],sun:[8,20]},
+    amenities:["classes"],
+    pk:{main:"CPF Building basement (enter from Tampines Central 1)",wkd:"~$0.80–1.20/30min (govt building rates)",wknd:"Free Sat & Sun — ample lots, rarely full",
+        alt:["Tampines 1 mall: $1.20/30min","Century Square: $0.80/30min","HDB Blk 513: $0.60/30min (3 min walk — cheapest option)"]},
+    note:"Highest rated (4.8★). Two floors. Closes 11PM weekdays. Free weekend parking. No attire (Premium).",
+    url:"https://maps.google.com/?q=Fitness+First+Tampines+CPF+Singapore" },
+
+  { id:14, name:"Westgate", area:"Jurong East", zone:"West",
+    addr:"3 Gateway Dr, #05-01, S608532", lat:1.334318, lng:103.742948,
+    stars:4.6, revs:650, tier:"platinum",
+    hrs:{wkd:[6,22],sat:[7,21],sun:[8,21]},
+    amenities:["pool","sauna","attire","classes"],
+    pk:{main:"Westgate mall basement MSCP (enter from Gateway Dr)",wkd:"First 3 hrs free (with validation); $1.20/30min after",wknd:"First 3 hrs free; $0.80/30min weekends",
+        alt:["JEM: $1.20/30min (connected via linkbridge)","IMM: $0.80/30min (10 min walk)","JCube area HDB: free lots (8 min walk)"]},
+    note:"Pool + sauna. Attire + towels + infused water & coffee included. First 3hrs free parking. Opens 7AM Sat.",
+    url:"https://maps.google.com/?q=Fitness+First+Westgate+Jurong+Singapore" }
+];
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let MAP, userMk;
+let uLat=null, uLng=null;
+let selDay=null, filters=new Set(), selId=null;
+const MK={};
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  buildDays();
+  initMap();
+  renderCards();
+});
+
+// ── DAY STRIP ─────────────────────────────────────────────────────────────
+function buildDays(){
+  const today = new Date().getDay();
+  const L = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let h = `<div class="pill on tod" data-d="null" onclick="setDay(null,this)">Today</div>`;
+  [1,2,3,4,5,6,0].forEach(d => {
+    h += `<div class="pill${d===today?' tod':''}" data-d="${d}" onclick="setDay(${d},this)">${L[d]}</div>`;
+  });
+  document.getElementById('days-wrap').innerHTML = h;
+}
+function setDay(d, btn){
+  selDay = d;
+  document.querySelectorAll('#days-wrap .pill').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  renderCards();
+  CLUBS.forEach(c => { if(MK[c.id]) MK[c.id].setPopupContent(buildPopup(c)); });
+}
+function getDay(){ return selDay === null ? new Date().getDay() : selDay; }
+
+// ── MAP INIT ───────────────────────────────────────────────────────────────
+function initMap(){
+  // Map div has explicit fixed positioning — safe to init immediately
+  MAP = L.map('map', { center: [1.352, 103.820], zoom: 12, zoomControl: true });
+
+  // Primary: Esri World Dark Gray (free, no key, professional quality)
+  L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Esri, HERE, Garmin, © OpenStreetMap contributors', maxZoom: 16 }
+  ).addTo(MAP);
+
+  // Reference labels on top (roads, place names, POIs)
+  L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    { attribution: '', maxZoom: 16, opacity: 0.9 }
+  ).addTo(MAP);
+
+  // Force re-render after fonts and layout settle
+  setTimeout(() => MAP.invalidateSize(), 100);
+  setTimeout(() => MAP.invalidateSize(), 500);
+
+  CLUBS.forEach(c => {
+    const isPt = c.tier === 'platinum';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width:30px;height:30px;
+        background:${isPt ? '#a78bfa' : '#e8001c'};
+        border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+        border:2.5px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.6);
+        display:flex;align-items:center;justify-content:center;">
+        <span style="transform:rotate(45deg);color:#fff;font-size:10px;font-weight:700;font-family:sans-serif;">${c.id}</span>
+      </div>`,
+      iconSize:[30,30], iconAnchor:[15,30], popupAnchor:[0,-32]
+    });
+    const m = L.marker([c.lat, c.lng], { icon }).addTo(MAP);
+    m.bindPopup(buildPopup(c), { maxWidth: 260 });
+    m.on('click', () => selectClub(c.id));
+    MK[c.id] = m;
+  });
+}
+
+function buildPopup(c){
+  const day = getDay();
+  const h = getHrs(c, day);
+  const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][day];
+  const hStr = h ? `<span class="pp-open">${fmt(h[0])}–${fmt(h[1])}</span>` : `<span class="pp-closed">Closed</span>`;
+  const tc = c.tier==='platinum' ? 'color:#a78bfa' : 'color:#38bdf8';
+  return `
+    <div class="pp-name">${c.name}</div>
+    <div class="pp-sub" style="${tc}">${c.tier} · ${c.zone}</div>
+    <div class="pp-row">⭐ <span>${c.stars} (${c.revs.toLocaleString()})</span></div>
+    <div class="pp-row">🕐 ${dayName}: ${hStr}</div>
+    <div class="pp-row">🅿️ <span style="font-size:10px;">${c.pk.main}</span></div>
+    <button class="pp-btn" onclick="selectClub(${c.id})">View Details →</button>`;
+}
+
+// ── CARDS ──────────────────────────────────────────────────────────────────
+function renderCards(){
+  const day = getDay();
+  let list = CLUBS.filter(c => {
+    for(const f of filters){
+      if(f==='open' && !getHrs(c,day)) return false;
+      if(f==='pool' && !c.amenities.includes('pool')) return false;
+      if(f==='sauna' && !c.amenities.includes('sauna')) return false;
+      if(f==='cold' && !c.amenities.includes('cold')) return false;
+      if(f==='hyrox' && !c.amenities.includes('hyrox')) return false;
+      if(f==='attire' && !c.amenities.includes('attire')) return false;
+      if(f==='platinum' && c.tier!=='platinum') return false;
+      if(f==='sun' && !c.hrs.sun) return false;
+    }
+    return true;
+  });
+
+  if(uLat!==null) list.sort((a,b) => hav(uLat,uLng,a.lat,a.lng) - hav(uLat,uLng,b.lat,b.lng));
+
+  const nearId = list.length > 0 && uLat !== null ? list[0].id : null;
+  const dayAbbr = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][day];
+
+  let html = '';
+  list.forEach((c, i) => {
+    const h = getHrs(c, day);
+    const isOpen = !!h;
+    const openStr = h ? `${fmt(h[0])}–${fmt(h[1])}` : 'Closed';
+    const dStr = uLat !== null ? `<span class="c-dist">${hav(uLat,uLng,c.lat,c.lng).toFixed(1)}km</span>` : '';
+    const tags = c.amenities.filter(a=>['pool','sauna','cold','hyrox','attire'].includes(a))
+      .map(a => `<span class="ctag ${a}">${{pool:'🏊 Pool',sauna:'🔥 Sauna',cold:'🧊 Cold',hyrox:'⚡ Hyrox',attire:'👕 Attire'}[a]}</span>`).join('');
+    html += `<div class="card${selId===c.id?' sel':''}${nearId===c.id?' nearest':''}${!isOpen?' dimmed':''}" id="card-${c.id}" onclick="selectClub(${c.id})">
+      <div class="c-badge">NEAREST</div>
+      <div class="c-head">
+        <span class="c-num">${String(i+1).padStart(2,'0')}</span>
+        <span class="c-tier ${c.tier==='platinum'?'tp':'tr'}">${c.tier}</span>
+      </div>
+      <div>
+        <div class="c-name">${c.name}</div>
+        <div class="c-area">${c.area}</div>
+      </div>
+      <div class="c-foot">
+        <div class="c-hrs"><div class="dot ${isOpen?'o':'c'}"></div>${dayAbbr}: ${openStr}</div>
+        <div class="c-meta">
+          <div class="c-tags">${tags}</div>
+          ${dStr}
+        </div>
+      </div>
+    </div>`;
+  });
+
+  document.getElementById('cards').innerHTML = html ||
+    '<div style="padding:22px 16px;color:var(--muted);font-size:13px;">No clubs match — clear some filters</div>';
+
+  const ids = new Set(list.map(c=>c.id));
+  CLUBS.forEach(c => {
+    const el = MK[c.id]?.getElement();
+    if(el) el.style.opacity = ids.has(c.id) ? '1' : '0.2';
+  });
+}
+
+// ── SELECT ──────────────────────────────────────────────────────────────────
+function selectClub(id){
+  selId = id;
+  const c = CLUBS.find(x=>x.id===id);
+  if(!c) return;
+  document.querySelectorAll('.card').forEach(el=>el.classList.remove('sel'));
+  const card = document.getElementById(`card-${id}`);
+  if(card){ card.classList.add('sel'); card.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'}); }
+  // Gentle pan only — no zoom, keeps full map context
+  if(!MAP.getBounds().contains([c.lat, c.lng])){
+    MAP.panTo([c.lat, c.lng], {animate:true, duration:.4});
+  }
+  if(MK[id]) MK[id].openPopup();
+  showDetail(c);
+}
+
+function showDetail(c){
+  const today = new Date().getDay();
+  const dStr = uLat!==null ? `<span class="ddist">📍 ${hav(uLat,uLng,c.lat,c.lng).toFixed(1)} km</span>` : '';
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const hrsHtml = [1,2,3,4,5,6,0].map(d => {
+    const h = getHrs(c,d);
+    const v = h ? `${fmt(h[0])}–${fmt(h[1])}` : 'Closed';
+    return `<div class="hb${d===today?' today':''}">
+      <div class="hb-day">${dayNames[d]}${d===today?' ·':''}</div>
+      <div class="hb-val ${h?'o':'c'}">${v}</div>
+    </div>`;
+  }).join('');
+  const amMap = {pool:['pool','🏊 Pool'],sauna:['sauna','🔥 Sauna/Steam'],cold:['cold','🧊 Cold Plunge'],hyrox:['hyrox','⚡ Hyrox'],attire:['attire','👕 Attire'],classes:['classes','🎯 Classes']};
+  const amHtml = c.amenities.filter(a=>amMap[a]).map(a=>`<span class="atag ${amMap[a][0]}">${amMap[a][1]}</span>`).join('');
+  const altHtml = c.pk.alt.map(a=>`→ <span>${a}</span>`).join('<br>');
+  const tierCls = c.tier==='platinum' ? 'tp' : 'tr';
+
+  document.getElementById('d-body').innerHTML = `
+    <div class="dn">${c.name}</div>
+    <div class="da">
+      <span class="tier-b ${tierCls}">${c.tier} club</span>
+      <span>${c.addr}</span>
+      ${dStr}
+    </div>
+    <div class="slbl">Opening Hours</div>
+    <div class="hrs-row">${hrsHtml}</div>
+    <div class="slbl">Amenities</div>
+    <div class="am-row">${amHtml}</div>
+    <div class="slbl">Parking</div>
+    <div class="pk-box">
+      <div class="pk-title">🅿️ ${c.pk.main}</div>
+      <div class="pk-row"><strong>Weekdays:</strong> ${c.pk.wkd}</div>
+      <div class="pk-row"><strong>Weekends:</strong> ${c.pk.wknd}</div>
+      <div class="pk-alt"><strong>Also nearby:</strong><br>${altHtml}</div>
+    </div>
+    <div class="note-box">${c.note}</div>
+    <div class="d-btns">
+      <a class="dbtn dbtn-p" href="${c.url}" target="_blank">🗺️ Get Directions</a>
+      <a class="dbtn dbtn-s" href="tel:+6567139120">📞 Call FF</a>
+    </div>`;
+  document.getElementById('detail').classList.add('open');
+}
+
+function closeDetail(){
+  document.getElementById('detail').classList.remove('open');
+  selId = null;
+  Object.values(MK).forEach(m=>{ try{ m.closePopup(); }catch(e){} });
+  renderCards(); // re-renders with no selection, restores all markers
+}
+
+// ── FILTERS ────────────────────────────────────────────────────────────────
+function toggleF(el){
+  const f = el.dataset.f;
+  filters.has(f) ? (filters.delete(f), el.classList.remove('on')) : (filters.add(f), el.classList.add('on'));
+  renderCards();
+}
+
+// ── GEOLOCATION ────────────────────────────────────────────────────────────
+function locateMe(){
+  const btn=document.getElementById('btn-locate'), txt=document.getElementById('loc-txt');
+  btn.className='loading'; txt.textContent='Locating…';
+  showSt('📍 Getting your location…');
+  if(!navigator.geolocation){ showSt('❌ Not supported',3000); btn.className=''; txt.textContent='Find Nearest'; return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    uLat=pos.coords.latitude; uLng=pos.coords.longitude;
+    btn.className='done'; txt.textContent='Located ✓';
+    if(userMk) MAP.removeLayer(userMk);
+    userMk = L.marker([uLat,uLng], {icon:L.divIcon({className:'',html:'<div class="u-dot"></div>',iconSize:[13,13],iconAnchor:[6.5,6.5]})}).addTo(MAP);
+    userMk.bindPopup('<strong style="color:var(--text)">📍 You are here</strong>').openPopup();
+    renderCards();
+    const nearest = [...CLUBS].sort((a,b)=>hav(uLat,uLng,a.lat,a.lng)-hav(uLat,uLng,b.lat,b.lng))[0];
+    showSt(`✅ Nearest: ${nearest.name} — ${hav(uLat,uLng,nearest.lat,nearest.lng).toFixed(1)} km`, 4500);
+    MAP.flyToBounds([[uLat,uLng],[nearest.lat,nearest.lng]], {padding:[60,60],duration:1.2});
+    setTimeout(()=>selectClub(nearest.id), 1300);
+  }, () => {
+    btn.className=''; txt.textContent='Find Nearest';
+    showSt('❌ Location blocked — check browser permissions', 3500);
+  }, {timeout:10000, maximumAge:60000});
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function getHrs(c, day){ return day>=1&&day<=5 ? c.hrs.wkd : day===6 ? c.hrs.sat : c.hrs.sun; }
+function fmt(h){ const s=h>=12?'PM':'AM'; const d=h>12?h-12:(h===0?12:h); return`${d}${s}`; }
+function hav(a,b,c,d){
+  const R=6371, dA=(c-a)*Math.PI/180, dB=(d-b)*Math.PI/180;
+  const x=Math.sin(dA/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dB/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+function showSt(msg,ms){
+  const el=document.getElementById('status'); el.textContent=msg; el.classList.add('show');
+  if(ms) setTimeout(()=>el.classList.remove('show'),ms);
+}
+</script>
+</body>
+</html>
